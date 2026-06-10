@@ -1,0 +1,51 @@
+{
+  "name": "pi-greeter",
+  "version": "0.1.0",
+  "description": "A minimal startup greeter for the Pi coding agent.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Alex",
+  "homepage": "https://github.com/alexander-posztos/pi-greeter#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/alexander-posztos/pi-greeter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alexander-posztos/pi-greeter/issues"
+  },
+  "files": [
+    "extensions",
+    "images",
+    "README.md",
+    "LICENSE",
+    "pi-greeter.example.json"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "pi-extension",
+    "greeter",
+    "dashboard",
+    "neovim",
+    "alpha-nvim"
+  ],
+  "pi": {
+    "extensions": ["./extensions/greeter.ts"],
+    "image": "https://raw.githubusercontent.com/alexander-posztos/pi-greeter/main/images/screenshot.png"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@mariozechner/pi-coding-agent": {
+      "optional": true
+    },
+    "@mariozechner/pi-tui": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
