@@ -2,7 +2,7 @@
 
 A minimal startup greeter for the Pi coding agent, inspired by [`alpha-nvim`](https://github.com/goolord/alpha-nvim).
 
-![pi-greeter screenshot](images/screenshot.png)
+![pi-greeter screenshot](https://raw.githubusercontent.com/alexander-posztos/pi-greeter/main/images/screenshot.png)
 
 ## Install
 

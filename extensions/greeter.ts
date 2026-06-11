@@ -211,11 +211,10 @@ class AlphaDashboard implements Component {
 		const height = this.tui.terminal.rows || process.stdout.rows || 24;
 		if (this.cachedLines && this.cachedWidth === width && this.cachedHeight === height) return this.cachedLines;
 
-		const fg = (name: string, text: string) => this.theme.fg(name, text);
-		const dim = (text: string) => fg("dim", text);
+		const dim = (text: string) => this.theme.fg("dim", text);
 		const accent = piBlue;
 		const orange = piOrange;
-		const muted = (text: string) => fg("muted", text);
+		const muted = (text: string) => this.theme.fg("muted", text);
 
 		const body: string[] = [];
 		const logoLines = getLogoLines(this.config.logo ?? "pi");
@@ -302,14 +301,14 @@ async function updatePi(pi: ExtensionAPI, ctx: ExtensionContext | ExtensionComma
 		ctx.ui.notify("Could not find the pi command in PATH", "error");
 		return;
 	}
-	const confirmed = await ctx.ui.confirm("Update Pi?", "Run pi update now?");
+	const confirmed = await ctx.ui.confirm("Update Pi?", "Run pi update now? This updates pi and all installed extensions.");
 	if (!confirmed) return;
 	ctx.ui.notify("Running pi update...", "info");
 	// On timeout pi.exec kills the child and resolves with code 0 and killed: true, so code alone is not enough.
 	const result = await pi.exec("pi", ["update"], { timeout: 600000 });
 	const succeeded = result.code === 0 && !result.killed;
 	const reason = result.killed ? "timed out" : result.stderr || result.stdout || `exit ${result.code}`;
-	ctx.ui.notify(succeeded ? "pi update complete" : `pi update failed: ${reason}`, succeeded ? "info" : "error");
+	ctx.ui.notify(succeeded ? "pi update complete - restart pi to apply" : `pi update failed: ${reason}`, succeeded ? "info" : "error");
 }
 
 async function openLazygit(pi: ExtensionAPI, ctx: ExtensionContext | ExtensionCommandContext) {
