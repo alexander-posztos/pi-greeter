@@ -59,5 +59,6 @@ See `pi-greeter.example.json` for a starter config.
 
 - Nerd Font recommended for icons.
 - The current working directory is hidden by default to avoid exposing local paths in screenshots.
-- Config and lazygit open in a new tmux window when Pi is running inside tmux. Outside tmux, the greeter shows the command to run manually.
+- Pressing `c` edits the config in an editor inside Pi and saves it on submit - works on macOS, Linux and Windows.
+- Lazygit opens in a new tmux window when Pi is running inside tmux. Outside tmux, the greeter shows the command to run manually.
 - Pi extensions run with full system access. Review code before installing third-party packages.

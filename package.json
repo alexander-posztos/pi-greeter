@@ -1,6 +1,6 @@
 {
   "name": "pi-greeter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A minimal startup greeter for the Pi coding agent.",
   "type": "module",
   "scripts": {

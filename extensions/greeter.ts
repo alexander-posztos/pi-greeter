@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
@@ -103,8 +103,11 @@ function shellQuote(value: string): string {
 }
 
 async function commandAvailable(pi: ExtensionAPI, command: string): Promise<boolean> {
-	const result = await pi.exec("sh", ["-lc", `command -v ${shellQuote(command)} >/dev/null 2>&1`], { timeout: 3000 });
-	return result.code === 0;
+	const result =
+		process.platform === "win32"
+			? await pi.exec("where", [command], { timeout: 3000 })
+			: await pi.exec("sh", ["-lc", `command -v ${shellQuote(command)} >/dev/null 2>&1`], { timeout: 3000 });
+	return result.code === 0 && !result.killed;
 }
 
 function tmuxSessionActive(): boolean {
@@ -114,7 +117,7 @@ function tmuxSessionActive(): boolean {
 async function openTmuxWindow(pi: ExtensionAPI, cwd: string, name: string, command: string): Promise<boolean> {
 	if (!tmuxSessionActive() || !(await commandAvailable(pi, "tmux"))) return false;
 	const result = await pi.exec("tmux", ["new-window", "-c", cwd, "-n", name, command], { timeout: 5000 });
-	return result.code === 0;
+	return result.code === 0 && !result.killed;
 }
 
 function center(line: string, width: number): string {
@@ -285,15 +288,31 @@ async function showDashboard(ctx: ExtensionContext | ExtensionCommandContext): P
 	});
 }
 
-async function openDashboardConfig(pi: ExtensionAPI, ctx: ExtensionContext | ExtensionCommandContext) {
-	const editor = process.env.VISUAL || process.env.EDITOR || "nvim";
-	const editorCommand = editor.split(/\s+/)[0] || editor;
-	if (!(await commandAvailable(pi, editorCommand))) {
-		ctx.ui.notify(`Could not find editor in PATH: ${editorCommand}`, "error");
+const defaultConfigText = `${JSON.stringify({ showOnStartup: true, icons: true, showCwd: false, logo: "pi" }, null, 2)}\n`;
+
+async function openDashboardConfig(ctx: ExtensionContext | ExtensionCommandContext) {
+	let text = defaultConfigText;
+	if (existsSync(configPath)) {
+		try {
+			text = readFileSync(configPath, "utf8");
+		} catch {
+			ctx.ui.notify(`pi-greeter: could not read ${configPath} - starting from defaults`, "warning");
+		}
+	}
+	while (true) {
+		const edited = await ctx.ui.editor("pi-greeter config", text);
+		if (edited === undefined) return;
+		try {
+			JSON.parse(edited);
+		} catch (error) {
+			ctx.ui.notify(`Invalid JSON, not saved: ${error instanceof Error ? error.message : String(error)}`, "error");
+			text = edited;
+			continue;
+		}
+		writeFileSync(configPath, edited.endsWith("\n") ? edited : `${edited}\n`);
+		ctx.ui.notify("pi-greeter config saved", "info");
 		return;
 	}
-	const opened = await openTmuxWindow(pi, homedir(), "pi-greeter-config", `${editor} ${shellQuote(configPath)}`);
-	ctx.ui.notify(opened ? "Opened dashboard config in a new tmux window" : `Run: ${editor} ${configPath}`, "info");
 }
 
 async function updatePi(pi: ExtensionAPI, ctx: ExtensionContext | ExtensionCommandContext) {
@@ -331,7 +350,7 @@ async function runAction(action: DashboardAction, pi: ExtensionAPI, ctx: Extensi
 			ctx.ui.notify("/resume is ready - press Enter to open Pi's session picker", "info");
 			return;
 		case "config":
-			return openDashboardConfig(pi, ctx);
+			return openDashboardConfig(ctx);
 		case "update":
 			return updatePi(pi, ctx);
 		case "lazygit":
@@ -361,7 +380,7 @@ export default function piGreeter(pi: ExtensionAPI) {
 		// ExtensionCommandContext. Sending slash commands as user messages would go
 		// to the LLM, not execute the command. So either run safe actions directly
 		// or place command text in the editor for the user to submit.
-		if (action === "config") return openDashboardConfig(pi, ctx);
+		if (action === "config") return openDashboardConfig(ctx);
 		if (action === "update") return updatePi(pi, ctx);
 		if (action === "lazygit") return openLazygit(pi, ctx);
 
