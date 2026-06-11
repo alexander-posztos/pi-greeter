@@ -31,7 +31,7 @@ Greeter keys:
 
 ```text
 n     New session
-l     Continue the most recent session for this directory
+l     Continue the most recent session (/greeter only)
 r     Prepare Pi's official /resume picker
 t     Switch theme
 m     Switch model
@@ -62,6 +62,6 @@ See `pi-greeter.example.json` for a starter config.
 - Nerd Font recommended for icons.
 - The current working directory is hidden by default to avoid exposing local paths in screenshots.
 - Pressing `c` edits the config in an editor inside Pi and saves it on submit - works on macOS, Linux and Windows.
-- On the startup greeter, `l` pre-fills `/resume` instead of switching directly - Pi only allows session switching from command context.
+- The startup greeter does not show `l` - Pi only allows session switching from command context, so it is available when the greeter is opened via `/greeter`.
 - `m` lists only models with configured auth.
 - Pi extensions run with full system access. Review code before installing third-party packages.

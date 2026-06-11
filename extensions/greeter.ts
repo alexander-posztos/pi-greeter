@@ -179,6 +179,7 @@ class AlphaDashboard implements Component {
 		private theme: Theme,
 		private ctx: ExtensionContext | ExtensionCommandContext,
 		private config: DashboardConfig,
+		private menu: typeof actions,
 		private done: (action: DashboardAction) => void,
 	) {}
 
@@ -190,22 +191,22 @@ class AlphaDashboard implements Component {
 
 	handleInput(data: string): void {
 		if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) return this.done("close");
-		if (matchesKey(data, Key.enter)) return this.done(actions[this.selected]!.action);
+		if (matchesKey(data, Key.enter)) return this.done(this.menu[this.selected]!.action);
 		if (matchesKey(data, Key.up) || data === "k") {
-			this.selected = this.selected === 0 ? actions.length - 1 : this.selected - 1;
+			this.selected = this.selected === 0 ? this.menu.length - 1 : this.selected - 1;
 			this.invalidate();
 			this.tui.requestRender();
 			return;
 		}
 		if (matchesKey(data, Key.down) || data === "j") {
-			this.selected = this.selected === actions.length - 1 ? 0 : this.selected + 1;
+			this.selected = this.selected === this.menu.length - 1 ? 0 : this.selected + 1;
 			this.invalidate();
 			this.tui.requestRender();
 			return;
 		}
 		const typed = stripAnsi(data).toLowerCase();
-		const index = actions.findIndex((action) => action.key === typed);
-		if (index >= 0) return this.done(actions[index]!.action);
+		const index = this.menu.findIndex((action) => action.key === typed);
+		if (index >= 0) return this.done(this.menu[index]!.action);
 	}
 
 	render(width: number): string[] {
@@ -236,12 +237,12 @@ class AlphaDashboard implements Component {
 			body.push(...Array(height >= 44 ? 6 : 5).fill(""));
 		}
 
-		const labelWidth = Math.max(...actions.map((action) => visibleWidth(action.label)));
+		const labelWidth = Math.max(...this.menu.map((action) => visibleWidth(action.label)));
 		const menuWidth = Math.min(width - 4, Math.max(44, labelWidth + 18));
 		const menuPad = Math.max(0, Math.floor((width - menuWidth) / 2));
 
-		for (let i = 0; i < actions.length; i++) {
-			const item = actions[i]!;
+		for (let i = 0; i < this.menu.length; i++) {
+			const item = this.menu[i]!;
 			const selected = i === this.selected;
 			const key = orange(item.key);
 			const icon = accent(this.config.icons === false ? item.asciiIcon : item.icon);
@@ -250,7 +251,7 @@ class AlphaDashboard implements Component {
 			const left = padRightVisible(`${prefix}  ${icon}  ${label}`, menuWidth - 4);
 			const row = `${left}${key}`;
 			body.push(`${" ".repeat(menuPad)}${truncateToWidth(row, width - menuPad)}`);
-			if (menuRowGap && i < actions.length - 1) body.push("");
+			if (menuRowGap && i < this.menu.length - 1) body.push("");
 		}
 
 		body.push(...Array(menuToHelpGap).fill(""));
@@ -271,9 +272,11 @@ class AlphaDashboard implements Component {
 	}
 }
 
-async function showDashboard(ctx: ExtensionContext | ExtensionCommandContext): Promise<DashboardAction> {
+async function showDashboard(ctx: ExtensionContext | ExtensionCommandContext, canSwitchSession: boolean): Promise<DashboardAction> {
 	const config = loadConfig(ctx);
-	return await ctx.ui.custom<DashboardAction>((tui, theme, _keybindings, done) => new AlphaDashboard(tui, theme, ctx, config, done), {
+	// Session switching needs a command context, so the startup greeter hides that row.
+	const menu = canSwitchSession ? actions : actions.filter((action) => action.action !== "lastSession");
+	return await ctx.ui.custom<DashboardAction>((tui, theme, _keybindings, done) => new AlphaDashboard(tui, theme, ctx, config, menu, done), {
 		overlay: true,
 		overlayOptions: {
 			width: "100%",
@@ -410,7 +413,7 @@ export default function piGreeter(pi: ExtensionAPI) {
 		if (config.showOnStartup === false) return;
 		if (config.showOnStartup === "fresh" && !sessionIsEmpty(ctx)) return;
 		startupShown = true;
-		const action = await showDashboard(ctx);
+		const action = await showDashboard(ctx, false);
 		if (action === "quit") {
 			ctx.shutdown();
 			return;
@@ -427,11 +430,9 @@ export default function piGreeter(pi: ExtensionAPI) {
 
 		if (action === "new" && sessionIsEmpty(ctx)) return;
 
-		// switchSession needs a command context, so "continue last" degrades to /resume here.
 		const commandByAction: Partial<Record<DashboardAction, string>> = {
 			new: "/new",
 			resume: "/resume",
-			lastSession: "/resume",
 		};
 		const command = commandByAction[action];
 		if (command) {
@@ -444,7 +445,7 @@ export default function piGreeter(pi: ExtensionAPI) {
 	pi.registerCommand("greeter", {
 		description: "Open fullscreen Pi greeter",
 		handler: async (_args, ctx) => {
-			const action = await showDashboard(ctx);
+			const action = await showDashboard(ctx, true);
 			await runAction(action, pi, ctx);
 		},
 	});
