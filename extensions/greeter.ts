@@ -1,10 +1,16 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth, visibleWidth, type Component, type TUI } from "@mariozechner/pi-tui";
+import {
+	SessionManager,
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	type ExtensionContext,
+	type Theme,
+} from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey, truncateToWidth, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 
-type DashboardAction = "new" | "resume" | "config" | "update" | "lazygit" | "quit" | "close";
+type DashboardAction = "new" | "lastSession" | "resume" | "theme" | "model" | "config" | "update" | "quit" | "close";
 type LogoVariant = "pi" | "text" | "compact";
 
 interface DashboardConfig {
@@ -84,10 +90,12 @@ const logos: Record<LogoVariant, string> = {
 
 const actions: Array<{ key: string; icon: string; asciiIcon: string; label: string; action: DashboardAction }> = [
 	{ key: "n", icon: "", asciiIcon: "+", label: "New session", action: "new" },
+	{ key: "l", icon: "󰋚", asciiIcon: "<", label: "Continue last session", action: "lastSession" },
 	{ key: "r", icon: "󱑆", asciiIcon: "~", label: "Resume session", action: "resume" },
+	{ key: "t", icon: "󰏘", asciiIcon: "%", label: "Theme", action: "theme" },
+	{ key: "m", icon: "󰚩", asciiIcon: "&", label: "Model", action: "model" },
 	{ key: "c", icon: "", asciiIcon: "*", label: "Config", action: "config" },
 	{ key: "u", icon: "󰚥", asciiIcon: "^", label: "Update", action: "update" },
-	{ key: "g", icon: "󰊢", asciiIcon: "#", label: "Lazygit", action: "lazygit" },
 	{ key: "q", icon: "󰩈", asciiIcon: "x", label: "Quit", action: "quit" },
 ];
 
@@ -107,16 +115,6 @@ async function commandAvailable(pi: ExtensionAPI, command: string): Promise<bool
 		process.platform === "win32"
 			? await pi.exec("where", [command], { timeout: 3000 })
 			: await pi.exec("sh", ["-lc", `command -v ${shellQuote(command)} >/dev/null 2>&1`], { timeout: 3000 });
-	return result.code === 0 && !result.killed;
-}
-
-function tmuxSessionActive(): boolean {
-	return Boolean(process.env.TMUX);
-}
-
-async function openTmuxWindow(pi: ExtensionAPI, cwd: string, name: string, command: string): Promise<boolean> {
-	if (!tmuxSessionActive() || !(await commandAvailable(pi, "tmux"))) return false;
-	const result = await pi.exec("tmux", ["new-window", "-c", cwd, "-n", name, command], { timeout: 5000 });
 	return result.code === 0 && !result.killed;
 }
 
@@ -330,13 +328,51 @@ async function updatePi(pi: ExtensionAPI, ctx: ExtensionContext | ExtensionComma
 	ctx.ui.notify(succeeded ? "pi update complete - restart pi to apply" : `pi update failed: ${reason}`, succeeded ? "info" : "error");
 }
 
-async function openLazygit(pi: ExtensionAPI, ctx: ExtensionContext | ExtensionCommandContext) {
-	if (!(await commandAvailable(pi, "lazygit"))) {
-		ctx.ui.notify("Could not find lazygit in PATH", "error");
+async function pickTheme(ctx: ExtensionContext | ExtensionCommandContext) {
+	const themes = ctx.ui.getAllThemes();
+	if (themes.length === 0) {
+		ctx.ui.notify("No themes found", "warning");
 		return;
 	}
-	const opened = await openTmuxWindow(pi, ctx.cwd, "lazygit", "lazygit");
-	ctx.ui.notify(opened ? "Opened lazygit in a new tmux window" : "Run: lazygit", "info");
+	const current = ctx.ui.theme.name;
+	const choice = await ctx.ui.select(current ? `Theme (current: ${current})` : "Theme", themes.map((theme) => theme.name));
+	if (choice === undefined) return;
+	const result = ctx.ui.setTheme(choice);
+	if (!result.success) ctx.ui.notify(`Could not set theme: ${result.error ?? "unknown error"}`, "error");
+}
+
+async function pickModel(pi: ExtensionAPI, ctx: ExtensionContext | ExtensionCommandContext) {
+	const models = ctx.modelRegistry.getAvailable();
+	if (models.length === 0) {
+		ctx.ui.notify("No models with configured auth found", "warning");
+		return;
+	}
+	const labelFor = (model: { provider: string; id: string }) => `${model.provider}/${model.id}`;
+	const current = ctx.model ? labelFor(ctx.model) : undefined;
+	const choice = await ctx.ui.select(current ? `Model (current: ${current})` : "Model", models.map(labelFor));
+	if (choice === undefined) return;
+	const model = models.find((candidate) => labelFor(candidate) === choice);
+	if (!model) return;
+	if (!(await pi.setModel(model))) ctx.ui.notify(`No API key available for ${choice}`, "error");
+}
+
+async function continueLastSession(ctx: ExtensionCommandContext) {
+	const sessions = await SessionManager.list(ctx.cwd);
+	const currentFile = ctx.sessionManager.getSessionFile();
+	const last = sessions
+		.filter((session) => session.path !== currentFile && session.messageCount > 0)
+		.sort((a, b) => b.modified.getTime() - a.modified.getTime())[0];
+	if (!last) {
+		ctx.ui.notify("No previous session found for this directory", "info");
+		return;
+	}
+	const label = (last.name || last.firstMessage || last.path).replace(/\s+/g, " ").trim().slice(0, 60);
+	await ctx.switchSession(last.path, {
+		// Captured ctx is stale after the switch; only the fresh withSession ctx is safe to use.
+		withSession: async (newCtx) => {
+			newCtx.ui.notify(`Resumed: ${label}`, "info");
+		},
+	});
 }
 
 async function runAction(action: DashboardAction, pi: ExtensionAPI, ctx: ExtensionCommandContext) {
@@ -345,16 +381,20 @@ async function runAction(action: DashboardAction, pi: ExtensionAPI, ctx: Extensi
 			if (sessionIsEmpty(ctx)) return;
 			await ctx.newSession();
 			return;
+		case "lastSession":
+			return continueLastSession(ctx);
 		case "resume":
 			ctx.ui.setEditorText("/resume");
 			ctx.ui.notify("/resume is ready - press Enter to open Pi's session picker", "info");
 			return;
+		case "theme":
+			return pickTheme(ctx);
+		case "model":
+			return pickModel(pi, ctx);
 		case "config":
 			return openDashboardConfig(ctx);
 		case "update":
 			return updatePi(pi, ctx);
-		case "lazygit":
-			return openLazygit(pi, ctx);
 		case "quit":
 			ctx.shutdown();
 			return;
@@ -382,13 +422,16 @@ export default function piGreeter(pi: ExtensionAPI) {
 		// or place command text in the editor for the user to submit.
 		if (action === "config") return openDashboardConfig(ctx);
 		if (action === "update") return updatePi(pi, ctx);
-		if (action === "lazygit") return openLazygit(pi, ctx);
+		if (action === "theme") return pickTheme(ctx);
+		if (action === "model") return pickModel(pi, ctx);
 
 		if (action === "new" && sessionIsEmpty(ctx)) return;
 
+		// switchSession needs a command context, so "continue last" degrades to /resume here.
 		const commandByAction: Partial<Record<DashboardAction, string>> = {
 			new: "/new",
 			resume: "/resume",
+			lastSession: "/resume",
 		};
 		const command = commandByAction[action];
 		if (command) {

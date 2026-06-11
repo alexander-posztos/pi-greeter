@@ -31,9 +31,11 @@ Greeter keys:
 
 ```text
 n     New session
+l     Continue the most recent session for this directory
 r     Prepare Pi's official /resume picker
+t     Switch theme
+m     Switch model
 c     Edit greeter config
-g     Open lazygit for the current cwd
 u     Run pi update after confirmation
 q     Quit Pi
 ```
@@ -60,5 +62,6 @@ See `pi-greeter.example.json` for a starter config.
 - Nerd Font recommended for icons.
 - The current working directory is hidden by default to avoid exposing local paths in screenshots.
 - Pressing `c` edits the config in an editor inside Pi and saves it on submit - works on macOS, Linux and Windows.
-- Lazygit opens in a new tmux window when Pi is running inside tmux. Outside tmux, the greeter shows the command to run manually.
+- On the startup greeter, `l` pre-fills `/resume` instead of switching directly - Pi only allows session switching from command context.
+- `m` lists only models with configured auth.
 - Pi extensions run with full system access. Review code before installing third-party packages.
